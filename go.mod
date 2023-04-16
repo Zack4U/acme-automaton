@@ -3,12 +3,12 @@ module github.com/Zack4U/acme-automaton
 go 1.20
 
 require (
-	fyne.io/fyne v1.4.3
+	github.com/emicklei/dot v1.4.2
 	github.com/sqweek/dialog v0.0.0-20220809060634-e981b270ebbf
 )
 
 require (
-	fyne.io/fyne/v2 v2.3.3 // indirect
+	fyne.io/fyne/v2 v2.3.3
 	fyne.io/systray v1.10.1-0.20230312215936-7f71b037e260 // indirect
 	github.com/TheTitanrain/w32 v0.0.0-20180517000239-4f5cfb03fabf // indirect
 	github.com/benoitkugler/textlayout v0.3.0 // indirect

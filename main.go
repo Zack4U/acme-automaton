@@ -1,17 +1,25 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"image"
+	"io"
 	"io/ioutil"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 
-	"fyne.io/fyne"
+	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
+	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/widget"
+
+	"github.com/emicklei/dot"
 	"github.com/sqweek/dialog"
 )
 
@@ -72,7 +80,7 @@ func (a *Automata) accepts(input string) bool {
 }
 
 // Muestra un dialogo para seleccion de archivos
-func showDialog() (string, error) {
+func showDialog(ext []string) (string, error) {
     // Obtiene el directorio actual
     dir, err := os.Getwd()
     if err != nil {
@@ -80,7 +88,7 @@ func showDialog() (string, error) {
     }
 
     // Abre el dialogo de selección de archivo
-    fileDialog := dialog.File().Title("Seleccionar archivo").Filter("JSON", "json")
+    fileDialog := dialog.File().Title("Seleccionar archivo").Filter(ext[0], ext[1])
     filePath, err := fileDialog.SetStartDir(dir).Load()
 
     if err != nil {
@@ -94,7 +102,8 @@ func showDialog() (string, error) {
 // Permite cargar el archivo del automata
 func upload() (error) {
     // Abre el dialogo de selección de archivo
-    filePath, err := showDialog()
+    ext := []string{".json", "json"}
+    filePath, err := showDialog(ext)
     if err != nil {
     return errors.New("Error al seleccionar archivo")
 }
@@ -115,6 +124,32 @@ func upload() (error) {
         return errors.New("Error al leer archivo JSON")
     }
     return nil
+}
+
+// Permite cargar el archivo de la cadena
+func uploadString() (string, error) {
+    // Abre el dialogo de selección de archivo
+    ext := []string{".txt", "txt"}
+    var cadena string
+    filePath, err := showDialog(ext)
+    if err != nil {
+    return cadena, errors.New("Error al seleccionar archivo")
+    }
+
+    file, err := os.Open(filePath)
+    if err != nil {
+        return cadena, errors.New("Error al leer archivo TXT")
+    }
+    defer file.Close()
+
+    bytes, err := ioutil.ReadAll(file)
+    if err != nil {
+        return cadena, errors.New("Error al leer archivo TXT")
+    }
+
+    cadena = string(bytes[:])
+    cadena = strings.ToLower(cadena)
+    return cadena, nil
 }
 
 // Convierte el automata en un String
@@ -140,6 +175,37 @@ func start(input string) (bool, string) {
     }
 }
 
+// Crea el grafo con los valores del automata
+func createGraph() (*dot.Graph, error) {
+    g := dot.NewGraph(dot.Directed)
+    a := automata
+
+    // Generar los nodos
+    for _, state := range a.States {
+		node := g.Node(state)
+		if state == a.InitialState {
+            node.Attr("style", "filled")
+			node.Attr("fillcolor", "green")
+		}
+		for _, finalState := range a.FinalStates {
+			if state == finalState {
+                node.Attr("style", "filled")
+				node.Attr("fillcolor", "red")
+			}
+		}
+	}
+
+    // Generar las aristas
+    for source, transitions := range a.Transitions {
+		for symbol, target := range transitions {
+			g.Edge(g.Node(source), g.Node(target)).Attr("label", symbol)
+
+		}
+	}
+
+    return g, nil
+}
+
 // Funcion principal
 func main() {    
 
@@ -149,6 +215,8 @@ func main() {
 
     icon, err := fyne.LoadResourceFromPath("./Resources/upload.png")
     window.SetIcon(icon)
+
+    window.Resize(fyne.NewSize(400, 400))
 
     importIcon, err := fyne.LoadResourceFromPath("./Resources/upload.png")
     if err != nil {
@@ -175,32 +243,83 @@ func main() {
     entry := widget.NewEntry()
 
     automatonTxt := widget.NewLabel("")
-
+    
     importBtn := widget.NewButtonWithIcon("CARGAR", importIcon, func() {
         if upload() != nil{
             entry.SetText("ERROR al cargar el archivo")
         }
     })
 
+    importStringBtn := widget.NewButtonWithIcon("CARGAR CADENA", importIcon, func() {
+        cadena, err := uploadString()
+        if err != nil{
+            entry.SetText("ERROR al cargar el archivo")
+        }
+        entry.SetText(cadena)
+    })
+
 
     start := widget.NewButtonWithIcon("VERIFICAR CADENA", startIcon, func() {
-        status, input := start(entry.Text)
+        cadena := strings.ToLower(entry.Text)
+        status, input := start(cadena)
         if status {
-            txt := fmt.Sprintf("La cadena %v es VALIDA", input)
+            txt := fmt.Sprintf("La cadena:\n %v\n\n>> ES VALIDA <<", input)
             automatonTxt.SetText(txt)
             return
         } 
-        txt := fmt.Sprintf("La cadena %v NO es VALIDA", input)
+        txt := fmt.Sprintf("La cadena:\n %v\n\n>> NO ES VALIDA <<", input)
         automatonTxt.SetText(txt)
     })
 
+    
+
     show := widget.NewButtonWithIcon("VER AUTOMATA", showIcon, func() {
-        automatonTxt.SetText(toString())
-    })
+        g, err := createGraph()
+        if err != nil {
+            panic(err)
+        }
+        popup := app.NewWindow("Grafo")
 
+        // Eliminar el archivo grafo.png si existe
+        if _, err := os.Stat("grafo.png"); err == nil {
+            if err := os.Remove("grafo.png"); err != nil {
+                panic(err)
+            }
+        }
 
-    content := container.NewVBox(importTxt, importBtn, entryTxt, entry, start, show, automatonTxt)
+        // Generar una imagen PNG del grafo utilizando Graphviz
+        cmd := exec.Command("dot", "-Tpng")
+        var out bytes.Buffer
+        cmd.Stdin = io.TeeReader(bytes.NewBufferString(g.String()), &out)
+        outfile, err := os.Create("grafo.png")
+        if err != nil {
+            panic(err)
+        }
+        defer outfile.Close()
+        cmd.Stdout = outfile
+        if err := cmd.Run(); err != nil {
+            panic(err)
+        }
 
+        // Obtener el tamaño de la imagen generada
+        imgFile, err := os.Open("grafo.png")
+        if err != nil {
+            panic(err)
+        }
+        defer imgFile.Close()
+        imgCfg, _, err := image.DecodeConfig(imgFile)
+        if err != nil {
+            panic(err)
+        }
+        imgWidth := imgCfg.Width
+        imgHeight := imgCfg.Height
+
+        popup.SetContent(canvas.NewImageFromFile("grafo.png"))
+        popup.Resize(fyne.NewSize(float32(imgWidth), float32(imgHeight)))
+        popup.Show()
+        })
+
+    content := container.NewVBox(importTxt, importBtn, entryTxt, importStringBtn, entry, start, show, automatonTxt)
     window.SetContent(content)
     window.ShowAndRun()
 }
