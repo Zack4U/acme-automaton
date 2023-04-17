@@ -103,6 +103,11 @@ func showDialog(ext []string) (string, error) {
 func upload() (error) {
     // Abre el dialogo de selección de archivo
     ext := []string{".json", "json"}
+
+    if len(automata.States) > 0 {
+        automata = Automata{}
+    }
+
     filePath, err := showDialog(ext)
     if err != nil {
     return errors.New("Error al seleccionar archivo")
